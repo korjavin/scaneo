@@ -35,6 +35,8 @@ OPTIONS
     -w, -whitelist
         Only include structs specified in case-sensitive, comma-delimited
         string.
+    -b, -blackprefix
+        Exclude fields which name starts with this prefix string.
 
     -v, -version
         Print version and exit.
@@ -84,12 +86,14 @@ func main() {
 	packName := flag.String("p", "current directory", "")
 	unexport := flag.Bool("u", false, "")
 	whitelist := flag.String("w", "", "")
+	blackprefix := flag.String("b", "", "")
 	version := flag.Bool("v", false, "")
 	help := flag.Bool("h", false, "")
 	flag.StringVar(outFilename, "output", "scans.go", "")
 	flag.StringVar(packName, "package", "current directory", "")
 	flag.BoolVar(unexport, "unexport", false, "")
 	flag.StringVar(whitelist, "whitelist", "", "")
+	flag.StringVar(blackprefix, "blackprefix", "", "")
 	flag.BoolVar(version, "version", false, "")
 	flag.BoolVar(help, "help", false, "")
 	flag.Usage = func() { log.Println(usageText) } // call on flag error
@@ -124,7 +128,7 @@ func main() {
 
 	structToks := make([]structToken, 0, 8)
 	for _, file := range files {
-		toks, err := parseCode(file, *whitelist)
+		toks, err := parseCode(file, *whitelist, *blackprefix)
 		if err != nil {
 			log.Println(`"syntax error" - parser probably`)
 			log.Fatal(err)
@@ -182,7 +186,7 @@ func findFiles(paths []string) ([]string, error) {
 	return deduped, nil
 }
 
-func parseCode(source string, commaList string) ([]structToken, error) {
+func parseCode(source string, commaList string, blackprefix string) ([]structToken, error) {
 	wlist := make(map[string]struct{})
 	if commaList != "" {
 		wSplits := strings.Split(commaList, ",")
@@ -242,11 +246,14 @@ func parseCode(source string, commaList string) ([]structToken, error) {
 
 			// iterate through struct fields (1 line at a time)
 			for _, fieldLine := range structType.Fields.List {
-				fieldToks := make([]fieldToken, len(fieldLine.Names))
+
+				fieldToks := []fieldToken{}
 
 				// get field name (or names because multiple vars can be declared in 1 line)
-				for i, fieldName := range fieldLine.Names {
-					fieldToks[i].Name = parseIdent(fieldName)
+				for _, fieldName := range fieldLine.Names {
+					if name := parseIdent(fieldName); blackprefix == "" || !strings.HasPrefix(name, blackprefix) {
+						fieldToks = append(fieldToks, fieldToken{Name: name})
+					}
 				}
 
 				var fieldType string
